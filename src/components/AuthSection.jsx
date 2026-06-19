@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { KeyRound, LogIn, LogOut, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { getApiUrl } from '../utils/api';
 
 /**
  * AuthSection Component
@@ -41,7 +42,7 @@ export default function AuthSection({ onAuthChange }) {
     const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
     
     try {
-      const response = await fetch(`http://localhost:8000${endpoint}`, {
+      const response = await fetch(getApiUrl(endpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

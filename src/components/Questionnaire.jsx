@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Send, Leaf } from 'lucide-react';
 import ProgressBar from './ProgressBar';
 import StepCard from './StepCard';
 import ProfileSummary from './ProfileSummary';
+import { getApiUrl } from '../utils/api';
 
 // Schema defining questions, options, validation rules, types, and descriptions
 const QUESTIONNAIRE_STEPS = [
@@ -136,7 +137,7 @@ export default function Questionnaire({ user }) {
       setLoading(true);
       setApiError('');
       try {
-        const response = await fetch('http://localhost:8000/api/profile', {
+        const response = await fetch(getApiUrl('/api/profile'), {
           headers: { 'Authorization': `Bearer ${user.token}` }
         });
         if (response.ok) {
@@ -231,7 +232,7 @@ export default function Questionnaire({ user }) {
         setLoading(true);
         setApiError('');
         try {
-          const response = await fetch('http://localhost:8000/api/profile', {
+          const response = await fetch(getApiUrl('/api/profile'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

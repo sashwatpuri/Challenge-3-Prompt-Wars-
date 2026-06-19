@@ -5,10 +5,8 @@
             "framework": "vite"
         },
         "backend": {
-            "root": "backend",
-            "routePrefix": "/_/backend",
-            "entrypoint": "main.py",
-            "runtime": "@vercel/python"
+            "entrypoint": "backend/main.py",
+            "routePrefix": "/_/backend"
         }
     }
 }

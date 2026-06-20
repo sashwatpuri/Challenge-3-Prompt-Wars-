@@ -31,3 +31,7 @@ venv/
 .venv/
 *.db
 
+#env
+.env    
+
+

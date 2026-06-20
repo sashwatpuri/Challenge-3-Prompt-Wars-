@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageSquare, Send, Bot, User, Sparkles, AlertCircle, X } from 'lucide-react';
+import { getApiUrl } from '../utils/api';
 
 /**
  * Knowledge Base definitions for general sustainability queries.
@@ -151,17 +152,42 @@ export default function CarbonChatbot({ userProfile, emissionBreakdown, recommen
     // Show typing indicator
     setIsTyping(true);
 
-    // Mock API fetch simulation for future LLM integration
-    setTimeout(() => {
-      const context = { userProfile, emissionBreakdown, recommendations };
-      const botResponseText = generateResponse(userText, context);
-      
-      setMessages(prev => [
-        ...prev,
-        { id: Date.now() + 1, sender: 'bot', text: botResponseText }
-      ]);
-      setIsTyping(false);
-    }, 800);
+    try {
+      const response = await fetch(getApiUrl('/api/chat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userText,
+          profile: userProfile,
+          emissions: emissionBreakdown,
+          recommendations: recommendations
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.response) {
+          setMessages(prev => [
+            ...prev,
+            { id: Date.now() + 1, sender: 'bot', text: data.response }
+          ]);
+          setIsTyping(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend chat failed, falling back to local KB:", err);
+    }
+
+    // Local rules-based engine fallback
+    const context = { userProfile, emissionBreakdown, recommendations };
+    const botResponseText = generateResponse(userText, context);
+    
+    setMessages(prev => [
+      ...prev,
+      { id: Date.now() + 1, sender: 'bot', text: botResponseText }
+    ]);
+    setIsTyping(false);
   };
 
   const widgetContent = (

@@ -463,3 +463,60 @@ def calculate_emissions(profile: ProfileData):
             "totalEmission": {"monthly": round(total_yearly/12, 2), "yearly": round(total_yearly, 2)}
         }
     }
+
+class ChatInput(BaseModel):
+    message: str
+    profile: Optional[Dict[str, Any]] = None
+    emissions: Optional[Dict[str, Any]] = None
+    recommendations: Optional[List[Dict[str, Any]]] = None
+
+def query_gemini(prompt: str) -> Optional[str]:
+    import urllib.request
+    import json
+    
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
+    }
+    req = urllib.request.Request(
+        url, 
+        data=json.dumps(data).encode("utf-8"), 
+        headers=headers, 
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            return res_data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        print(f"Error querying Gemini: {e}")
+        return None
+
+@app.post("/api/chat")
+def chatbot_chat(chat_input: ChatInput):
+    profile_summary = f"Profile: {chat_input.profile}" if chat_input.profile else "No profile completed yet."
+    emissions_summary = f"Emissions: {chat_input.emissions}" if chat_input.emissions else ""
+    recs_summary = f"Ranked Recommendations: {chat_input.recommendations}" if chat_input.recommendations else ""
+    
+    prompt = f"""You are CarbonMind AI, a helpful sustainability assistant.
+The user is in India (currencies in INR / Rupee ₹, electricity tariff avg ₹7/kWh, coal-heavy grid emissions index 0.82 kg CO2e/kWh).
+User Context:
+{profile_summary}
+{emissions_summary}
+{recs_summary}
+
+Please answer the user's question. Keep your response concise, encouraging, friendly, and under 3-4 sentences.
+User Question: "{chat_input.message}"
+Answer:"""
+
+    response_text = query_gemini(prompt)
+    if response_text:
+        return {"response": response_text.strip(), "source": "gemini"}
+    else:
+        return {"response": None, "source": "fallback"}

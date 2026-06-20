@@ -1,13 +1,125 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import Questionnaire from './components/Questionnaire';
 import AuthSection from './components/AuthSection';
-import { Leaf, Shield, Globe, Award } from 'lucide-react';
+import { Leaf, Shield, Globe, Award, X, Info, BookOpen, ChevronRight, Zap } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [activeModal, setActiveModal] = useState(null); // 'platform', 'methodology', or null
 
   const handleAuthChange = (activeUser) => {
     setUser(activeUser);
+  };
+
+  const renderModal = () => {
+    if (!activeModal) return null;
+
+    const modalContent = activeModal === 'platform' ? {
+      icon: <Info className="text-emerald-400 w-5 h-5" />,
+      title: "About CarbonMind AI Platform",
+      body: (
+        <div className="space-y-4 text-slate-300 text-sm leading-relaxed">
+          <p>
+            CarbonMind AI is a premium, personal sustainability management platform designed to help you calculate, visualize, and optimize your environmental footprint.
+          </p>
+          <div className="space-y-3 pt-2">
+            <div className="flex gap-2.5">
+              <ChevronRight className="text-emerald-400 w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-white font-bold block">Carbon Twin & What-If Simulator</span>
+                Model lifestyle changes (like swapping commute modes or switching diets) to optimize a virtual future version of your footprint in real-time.
+              </div>
+            </div>
+            <div className="flex gap-2.5">
+              <ChevronRight className="text-emerald-400 w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-white font-bold block">Weekly Sustainability Challenges</span>
+                Engage in actionable tasks (like walking instead of driving) to build commute streaks, earn points, and unlock milestones.
+              </div>
+            </div>
+            <div className="flex gap-2.5">
+              <ChevronRight className="text-emerald-400 w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-white font-bold block">AI Chatbot Assistant</span>
+                Interact with a sustainability assistant trained to provide explanation on carbon metrics, reduction pathways, and personalized tips.
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    } : {
+      icon: <BookOpen className="text-emerald-400 w-5 h-5" />,
+      title: "Carbon Calculation Methodology",
+      body: (
+        <div className="space-y-4 text-slate-300 text-sm leading-relaxed">
+          <p>
+            Carbon footprint estimations are calculated in kilograms of Carbon Dioxide Equivalent (kg CO₂e) per year, reflecting direct and upstream lifecycle emissions.
+          </p>
+          
+          <div className="border-t border-slate-800/80 my-3 pt-3 space-y-2 font-mono text-xs">
+            <div className="flex justify-between border-b border-slate-900 pb-1.5">
+              <span className="text-slate-400 font-semibold">Electricity (India Grid)</span>
+              <span className="text-emerald-400 font-bold">0.82 kg CO₂e / kWh</span>
+            </div>
+            <div className="flex justify-between border-b border-slate-900 pb-1.5">
+              <span className="text-slate-400 font-semibold">Transportation (Gas Car)</span>
+              <span className="text-slate-300">2,400 kg CO₂e / yr</span>
+            </div>
+            <div className="flex justify-between border-b border-slate-900 pb-1.5">
+              <span className="text-slate-400 font-semibold">Diet (mixed / heavy meat)</span>
+              <span className="text-slate-300">1,200 / 2,200 kg CO₂e / yr</span>
+            </div>
+            <div className="flex justify-between border-b border-slate-900 pb-1.5">
+              <span className="text-slate-400 font-semibold">Diet (vegetarian / vegan)</span>
+              <span className="text-emerald-400 font-bold">600 / 300 kg CO₂e / yr</span>
+            </div>
+            <div className="flex justify-between border-b border-slate-900 pb-1.5">
+              <span className="text-slate-400 font-semibold">Consumer Shopping</span>
+              <span className="text-slate-300">10 kg CO₂e / item</span>
+            </div>
+          </div>
+
+          <div className="p-3 bg-slate-950/60 border border-slate-850 rounded-lg flex gap-2 items-start text-xs text-slate-400">
+            <Zap size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
+            <p>
+              Note: The electricity intensity index is optimized for India's coal-heavy energy grid (0.82 kg/kWh) according to Central Electricity Authority (CEA) reports.
+            </p>
+          </div>
+        </div>
+      )
+    };
+
+    return createPortal(
+      <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left">
+          <button
+            onClick={() => setActiveModal(null)}
+            className="absolute top-4 right-4 text-slate-500 hover:text-slate-350 cursor-pointer text-xl p-1 rounded-lg hover:bg-slate-850 transition-colors"
+            aria-label="Close modal"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="flex items-center gap-2 mb-4 border-b border-slate-800/80 pb-3">
+            {modalContent.icon}
+            <h3 className="text-white font-bold text-lg">
+              {modalContent.title}
+            </h3>
+          </div>
+
+          {modalContent.body}
+
+          <button
+            onClick={() => setActiveModal(null)}
+            className="mt-6 w-full py-2 bg-slate-950 border border-slate-800 hover:bg-slate-800 text-slate-300 font-semibold rounded-lg text-sm transition-colors cursor-pointer text-center"
+          >
+            Close Window
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
   };
 
   return (
@@ -28,9 +140,19 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-slate-400 hover:text-white transition-colors cursor-pointer hidden sm:block">Platform</span>
-            <span className="text-slate-400 hover:text-white transition-colors cursor-pointer hidden sm:block">Methodology</span>
+          <div className="flex items-center gap-5 text-sm">
+            <button 
+              onClick={() => setActiveModal('platform')}
+              className="text-slate-400 hover:text-white transition-colors cursor-pointer hidden sm:block bg-transparent border-none p-0 focus:outline-none"
+            >
+              Platform
+            </button>
+            <button 
+              onClick={() => setActiveModal('methodology')}
+              className="text-slate-400 hover:text-white transition-colors cursor-pointer hidden sm:block bg-transparent border-none p-0 focus:outline-none"
+            >
+              Methodology
+            </button>
             <AuthSection onAuthChange={handleAuthChange} />
           </div>
         </div>
@@ -93,6 +215,9 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Render Portal Modals */}
+      {renderModal()}
     </div>
   );
 }

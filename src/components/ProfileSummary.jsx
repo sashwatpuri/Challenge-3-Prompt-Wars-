@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Check, Clipboard, RefreshCw, Leaf, Zap, ShieldAlert, Sparkles, TrendingDown, Star, Activity } from 'lucide-react';
+import React from 'react';
+import { RefreshCw, Leaf, Zap, ShieldAlert, Sparkles, TrendingDown, Star, Activity } from 'lucide-react';
 import { calculateFootprint } from '../utils/carbonEngine';
 import { runInsightEngine } from '../utils/aiEngine';
 import CarbonTwin from './CarbonTwin';
@@ -15,15 +15,6 @@ import CarbonChatbot from './CarbonChatbot';
  * @param {Function} props.onReset - Action handler to retake the questionnaire
  */
 export default function ProfileSummary({ profile, onReset }) {
-  const [copied, setCopied] = useState(false);
-
-  // Copy compiled profile object to clipboard
-  const handleCopy = () => {
-    navigator.clipboard.writeText(JSON.stringify(profile, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   // Compile calculations and feed to the AI decision engine
   const footprintReport = calculateFootprint(profile);
   const totalEmissions = footprintReport.totalEmission.yearly;
@@ -44,8 +35,8 @@ export default function ProfileSummary({ profile, onReset }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-6xl mx-auto animate-fade-in text-left">
       
-      {/* Visual Analytics Column */}
-      <div className="lg:col-span-7 space-y-6">
+      {/* Left Column: Footprint Indicator & Action Controls */}
+      <div className="lg:col-span-5 space-y-6">
         
         {/* Footprint Indicator Card */}
         <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl">
@@ -82,7 +73,20 @@ export default function ProfileSummary({ profile, onReset }) {
           </div>
         </div>
 
-        {/* AI Recommendations Action Plan */}
+        {/* Action Controls */}
+        <div className="flex gap-4">
+          <button
+            onClick={onReset}
+            className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-200 font-bold rounded-xl transition-all duration-200 cursor-pointer shadow-lg hover:shadow-slate-900/50"
+          >
+            <RefreshCw size={18} />
+            Retake Questionnaire
+          </button>
+        </div>
+      </div>
+
+      {/* Right Column: AI Recommendations Action Plan */}
+      <div className="lg:col-span-7 space-y-6">
         <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl">
           <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2 border-b border-slate-800 pb-3">
             <TrendingDown className="w-5 h-5 text-emerald-400" />
@@ -136,53 +140,6 @@ export default function ProfileSummary({ profile, onReset }) {
               </div>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* JSON Output Column */}
-      <div className="lg:col-span-5 space-y-6">
-        
-        {/* Profile JSON Codeblock */}
-        <div className="bg-slate-950 border border-slate-850 rounded-2xl overflow-hidden shadow-2xl flex flex-col h-full min-h-[350px]">
-          
-          {/* Code Header */}
-          <div className="flex justify-between items-center px-4 py-3 bg-slate-900/80 border-b border-slate-800/60">
-            <span className="text-xs font-semibold text-slate-400 font-mono">
-              user_profile.json
-            </span>
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
-            >
-              {copied ? (
-                <>
-                  <Check size={14} className="text-emerald-400" />
-                  <span className="text-emerald-400">Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Clipboard size={14} />
-                  <span>Copy Code</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* JSON Rendering */}
-          <div className="p-5 font-mono text-sm overflow-x-auto text-emerald-400 flex-grow bg-slate-950">
-            <pre className="text-emerald-350">{JSON.stringify(profile, null, 2)}</pre>
-          </div>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex gap-4">
-          <button
-            onClick={onReset}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-200 font-bold rounded-xl transition-all duration-200 cursor-pointer shadow-lg hover:shadow-slate-900/50"
-          >
-            <RefreshCw size={18} />
-            Retake Questionnaire
-          </button>
         </div>
       </div>
 

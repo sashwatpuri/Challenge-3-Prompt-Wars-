@@ -8,6 +8,17 @@ from fastapi import FastAPI, HTTPException, Depends, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
 
+# Try to load environment variables from .env file
+for env_path in [".env", "../.env", "backend/.env"]:
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    # Use setdefault to preserve existing environment variables
+                    os.environ.setdefault(k.strip(), v.strip())
+
 # Configuration
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "carbonmind_ai_secure_token_key_2026")
 ALGORITHM = "HS256"
@@ -520,3 +531,7 @@ Answer:"""
         return {"response": response_text.strip(), "source": "gemini"}
     else:
         return {"response": None, "source": "fallback"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
-import { RefreshCw, Leaf, Zap, ShieldAlert, Sparkles, TrendingDown } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { RefreshCw, Leaf, Zap, ShieldAlert, Sparkles, TrendingDown, Sliders, CheckSquare } from 'lucide-react';
 import { calculateFootprint } from '../utils/carbonEngine';
 import { runInsightEngine } from '../utils/aiEngine';
 import CarbonTwin from './CarbonTwin';
+import WhatIfSimulator from './WhatIfSimulator';
 import ProgressDashboard from './ProgressDashboard';
 import CarbonChatbot from './CarbonChatbot';
 
@@ -15,6 +16,8 @@ import CarbonChatbot from './CarbonChatbot';
  * @param {Function} props.onReset - Action handler to retake the questionnaire
  */
 export default function ProfileSummary({ profile, onReset }) {
+  const [activeTwinTab, setActiveTwinTab] = useState('twin'); // 'twin' or 'sandbox'
+
   // Compile calculations and feed to the AI decision engine
   const footprintReport = useMemo(() => calculateFootprint(profile), [profile]);
   const totalEmissions = footprintReport.totalEmission.yearly;
@@ -148,13 +151,57 @@ export default function ProfileSummary({ profile, onReset }) {
         <ProgressDashboard profile={profile} emissions={footprintReport} />
       </div>
 
-      {/* Carbon Twin Simulator Dashboard */}
+      {/* Carbon Twin / Sandbox Simulation Tab Controls */}
+      <div className="lg:col-span-12 mt-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-2xl p-4 shadow-xl">
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-emerald-400" />
+              Interactive Simulation Workspace
+            </h3>
+            <p className="text-slate-400 text-xs mt-1">
+              Select a simulation style to model your carbon reduction journey.
+            </p>
+          </div>
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-850 w-full sm:w-auto">
+            <button
+              onClick={() => setActiveTwinTab('twin')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeTwinTab === 'twin'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-950/20'
+                  : 'text-slate-450 hover:text-slate-200'
+              }`}
+            >
+              <CheckSquare size={14} />
+              AI Recommendation Twin
+            </button>
+            <button
+              onClick={() => setActiveTwinTab('sandbox')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeTwinTab === 'sandbox'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-950/20'
+                  : 'text-slate-450 hover:text-slate-200'
+              }`}
+            >
+              <Sliders size={14} />
+              What-If Sandbox
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Render selected simulator */}
       <div className="lg:col-span-12">
-        <CarbonTwin 
-          currentProfile={profile} 
-          recommendations={recommendations} 
-          emissionBreakdown={footprintReport} 
-        />
+        {activeTwinTab === 'twin' ? (
+          <CarbonTwin 
+            recommendations={recommendations} 
+            emissionBreakdown={footprintReport} 
+          />
+        ) : (
+          <WhatIfSimulator 
+            originalProfile={profile} 
+          />
+        )}
       </div>
 
       {/* AI Assistant Chatbot Widget */}

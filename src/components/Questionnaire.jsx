@@ -130,10 +130,22 @@ export default function Questionnaire({ user }) {
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
 
-  // Fetch profile from FastAPI backend when user logs in
+  // Fetch profile from FastAPI backend when user logs in or clear it when logged out
   useEffect(() => {
+    if (!user) {
+      setFormData({
+        transport: '',
+        food: '',
+        electricity: '',
+        shopping: '',
+        waste: '',
+      });
+      setSubmittedProfile(null);
+      setErrors({});
+      return;
+    }
+
     const fetchProfile = async () => {
-      if (!user) return;
       setLoading(true);
       setApiError('');
       try {

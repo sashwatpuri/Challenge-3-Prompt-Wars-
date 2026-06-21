@@ -12,6 +12,7 @@ def setup_test_db(monkeypatch, tmp_path):
     # Set DB_FILE to a temporary sqlite db path for isolation
     test_db = str(tmp_path / "test_backend.db")
     monkeypatch.setattr(main, "DB_FILE", test_db)
+    monkeypatch.setenv("TESTING", "1")
     main.init_db()
     yield
 
@@ -181,7 +182,9 @@ def test_calculate_emissions(client):
 
 # --- Chatbot Endpoint Tests ---
 def test_chat_success(client, monkeypatch):
-    monkeypatch.setattr(main, "query_gemini", lambda user_prompt, system_prompt=None: "Mocked Gemini Response")
+    async def mock_query(user_prompt, system_prompt=None):
+        return "Mocked Gemini Response"
+    monkeypatch.setattr(main, "query_gemini", mock_query)
     chat_payload = {
         "message": "What is my biggest carbon source?",
         "profile": {
@@ -207,7 +210,9 @@ def test_chat_success(client, monkeypatch):
     assert response.json()["source"] == "gemini"
 
 def test_chat_fallback(client, monkeypatch):
-    monkeypatch.setattr(main, "query_gemini", lambda user_prompt, system_prompt=None: None)
+    async def mock_query(user_prompt, system_prompt=None):
+        return None
+    monkeypatch.setattr(main, "query_gemini", mock_query)
     chat_payload = {
         "message": "What is my biggest carbon source?",
         "profile": {

@@ -1,12 +1,19 @@
 import os
 import sqlite3
 import jwt
-from datetime import datetime, timedelta
+import bcrypt
+import secrets
+import httpx
+import time
+import warnings
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
+from collections import defaultdict
+from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, Depends, Header, status
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from passlib.context import CryptContext
 
 # Try to load environment variables from .env file
 for env_path in [".env", "../.env", "backend/.env"]:
@@ -20,14 +27,15 @@ for env_path in [".env", "../.env", "backend/.env"]:
                     os.environ.setdefault(k.strip(), v.strip())
 
 # Configuration
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "carbonmind_ai_secure_token_key_2026")
-if SECRET_KEY == "carbonmind_ai_secure_token_key_2026":
-    import warnings
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
     warnings.warn(
-        "JWT_SECRET_KEY is using the default development fallback key. "
-        "Please configure a custom JWT_SECRET_KEY in your production environment.",
+        "JWT_SECRET_KEY environment variable is not set. A random secure key has been generated. "
+        "Session tokens will be invalidated on server restarts.",
         UserWarning
     )
+
 ALGORITHM = "HS256"
 DB_FILE = "backend.db"
 ELECTRICITY_EMISSION_FACTOR = 0.82
@@ -41,10 +49,76 @@ class DBConnection:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.conn.close()
 
+# Database lifecycle management
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("PRAGMA foreign_keys = ON;")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+# Password Hashing utility (direct bcrypt to avoid passlib deprecations)
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
+
+def validate_username(username: str) -> bool:
+    return bool(re.match(r"^[a-zA-Z0-9_-]{3,50}$", username))
+
+# Rate limiting
+class RateLimiter:
+    def __init__(self, requests_limit: int, window_seconds: int):
+        self.requests_limit = requests_limit
+        self.window_seconds = window_seconds
+        self.history = defaultdict(list)
+
+    def is_allowed(self, client_ip: str) -> bool:
+        if os.environ.get("TESTING") == "1":
+            return True
+        now = time.time()
+        self.history[client_ip] = [t for t in self.history[client_ip] if now - t < self.window_seconds]
+        if len(self.history[client_ip]) >= self.requests_limit:
+            return False
+        self.history[client_ip].append(now)
+        return True
+
+auth_limiter = RateLimiter(requests_limit=10, window_seconds=60)
+chat_limiter = RateLimiter(requests_limit=20, window_seconds=60)
+
+def rate_limit_auth(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later."
+        )
+
+def rate_limit_chat(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    if not chat_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later."
+        )
+
+# Lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 app = FastAPI(
     title="CarbonMind AI - Backend Services",
     description="REST API for Carbon Footprint calculations, profiling, and persistent user dashboards.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Enable CORS for React integration
@@ -59,8 +133,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Password Hashing utility
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# HTTP Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none';"
+    return response
 
 # ----------------- Models -----------------
 class UserRegister(BaseModel):
@@ -162,13 +244,11 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_challenges_user_id ON challenges(user_id)")
         conn.commit()
 
-init_db()
-
 # ----------------- JWT Helpers -----------------
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(days=7))
-    to_encode.update({"exp": expire})
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=7))
+    to_encode.update({"exp": int(expire.timestamp())})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
@@ -179,7 +259,12 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         )
     token = authorization.split(" ")[1]
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, 
+            SECRET_KEY, 
+            algorithms=[ALGORITHM], 
+            options={"require": ["exp", "sub", "id"]}
+        )
         username: str = payload.get("sub")
         user_id: int = payload.get("id")
         if username is None or user_id is None:
@@ -188,6 +273,11 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
                 detail="Token validation failed"
             )
         return {"id": user_id, "username": username}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token signature has expired"
+        )
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -195,52 +285,64 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         )
 
 # ----------------- Authentication Routes -----------------
-@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
-def register(user: UserRegister):
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED, dependencies=[Depends(rate_limit_auth)])
+def register(user: UserRegister, db: sqlite3.Connection = Depends(get_db)):
+    if not validate_username(user.username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username must be 3-50 characters and contain only letters, numbers, underscores, or hyphens."
+        )
     try:
-        with DBConnection() as conn:
-            cursor = conn.cursor()
-            hashed = pwd_context.hash(user.password)
-            cursor.execute(
-                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                (user.username, hashed)
-            )
-            conn.commit()
-            user_id = cursor.lastrowid
-            token = create_access_token({"sub": user.username, "id": user_id})
-            return {"access_token": token, "token_type": "bearer", "username": user.username}
+        cursor = db.cursor()
+        hashed = hash_password(user.password)
+        cursor.execute(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+            (user.username, hashed)
+        )
+        db.commit()
+        user_id = cursor.lastrowid
+        token = create_access_token({"sub": user.username, "id": user_id})
+        return {"access_token": token, "token_type": "bearer", "username": user.username}
     except sqlite3.IntegrityError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username is already taken"
         )
 
-@app.post("/api/auth/login")
-def login(user: UserLogin):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (user.username,))
-        row = cursor.fetchone()
+@app.post("/api/auth/login", dependencies=[Depends(rate_limit_auth)])
+def login(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (user.username,))
+    row = cursor.fetchone()
 
-    if not row or not pwd_context.verify(user.password, row[2]):
+    # Pre-calculated dummy hash to mitigate timing attacks
+    dummy_hash = "$2b$12$L7R2QhZ.1rFj6xR4T8h6v.qE5tLzT/f8dG7iLwU5oE3R2QhZ.1rFj"
+    
+    if row:
+        user_id, username, password_hash = row
+        is_valid = verify_password(user.password, password_hash)
+    else:
+        verify_password(user.password, dummy_hash)
+        is_valid = False
+
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
         )
 
-    token = create_access_token({"sub": row[1], "id": row[0]})
-    return {"access_token": token, "token_type": "bearer", "username": row[1]}
+    token = create_access_token({"sub": username, "id": user_id})
+    return {"access_token": token, "token_type": "bearer", "username": username}
 
 # ----------------- Profile CRUD Routes -----------------
 @app.get("/api/profile")
-def get_profile(current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT transport, food, electricity, shopping, waste FROM profiles WHERE user_id = ?",
-            (current_user["id"],)
-        )
-        row = cursor.fetchone()
+def get_profile(current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT transport, food, electricity, shopping, waste FROM profiles WHERE user_id = ?",
+        (current_user["id"],)
+    )
+    row = cursor.fetchone()
 
     if not row:
         return {"profile": None}
@@ -256,36 +358,34 @@ def get_profile(current_user: dict = Depends(get_current_user)):
     }
 
 @app.post("/api/profile")
-def save_profile(profile: ProfileData, current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO profiles (user_id, transport, food, electricity, shopping, waste, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(user_id) DO UPDATE SET
-                transport=excluded.transport,
-                food=excluded.food,
-                electricity=excluded.electricity,
-                shopping=excluded.shopping,
-                waste=excluded.waste,
-                updated_at=CURRENT_TIMESTAMP
-            """,
-            (current_user["id"], profile.transport, profile.food, profile.electricity, profile.shopping, profile.waste)
-        )
-        conn.commit()
+def save_profile(profile: ProfileData, current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        INSERT INTO profiles (user_id, transport, food, electricity, shopping, waste, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            transport=excluded.transport,
+            food=excluded.food,
+            electricity=excluded.electricity,
+            shopping=excluded.shopping,
+            waste=excluded.waste,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (current_user["id"], profile.transport, profile.food, profile.electricity, profile.shopping, profile.waste)
+    )
+    db.commit()
     return {"message": "Profile synced successfully"}
 
 # ----------------- Recommendations History CRUD -----------------
 @app.get("/api/recommendations")
-def get_recommendations(current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, action, reason, impact_score, created_at FROM recommendations WHERE user_id = ? ORDER BY created_at DESC",
-            (current_user["id"],)
-        )
-        rows = cursor.fetchall()
+def get_recommendations(current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, action, reason, impact_score, created_at FROM recommendations WHERE user_id = ? ORDER BY created_at DESC",
+        (current_user["id"],)
+    )
+    rows = cursor.fetchall()
     return {
         "recommendations": [
             {
@@ -299,27 +399,25 @@ def get_recommendations(current_user: dict = Depends(get_current_user)):
     }
 
 @app.post("/api/recommendations")
-def add_recommendation(rec: RecommendationInput, current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO recommendations (user_id, action, reason, impact_score) VALUES (?, ?, ?, ?)",
-            (current_user["id"], rec.action, rec.reason, rec.impact_score)
-        )
-        conn.commit()
-        rec_id = cursor.lastrowid
+def add_recommendation(rec: RecommendationInput, current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO recommendations (user_id, action, reason, impact_score) VALUES (?, ?, ?, ?)",
+        (current_user["id"], rec.action, rec.reason, rec.impact_score)
+    )
+    db.commit()
+    rec_id = cursor.lastrowid
     return {"id": rec_id, "message": "Recommendation saved successfully"}
 
 # ----------------- Carbon History CRUD -----------------
 @app.get("/api/history")
-def get_history(current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at DESC",
-            (current_user["id"],)
-        )
-        rows = cursor.fetchall()
+def get_history(current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at DESC",
+        (current_user["id"],)
+    )
+    rows = cursor.fetchall()
     return {
         "history": [
             {
@@ -332,27 +430,25 @@ def get_history(current_user: dict = Depends(get_current_user)):
     }
 
 @app.post("/api/history")
-def add_history(history: CarbonHistoryInput, current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO carbon_history (user_id, total_emission, carbon_score) VALUES (?, ?, ?)",
-            (current_user["id"], history.total_emission, history.carbon_score)
-        )
-        conn.commit()
-        history_id = cursor.lastrowid
+def add_history(history: CarbonHistoryInput, current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO carbon_history (user_id, total_emission, carbon_score) VALUES (?, ?, ?)",
+        (current_user["id"], history.total_emission, history.carbon_score)
+    )
+    db.commit()
+    history_id = cursor.lastrowid
     return {"id": history_id, "message": "Carbon footprint log recorded"}
 
 # ----------------- Weekly Challenges CRUD -----------------
 @app.get("/api/challenges")
-def get_challenges(current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, challenge, difficulty, estimated_co2_reduction, completion_reward, completed, created_at FROM challenges WHERE user_id = ? ORDER BY created_at DESC",
-            (current_user["id"],)
-        )
-        rows = cursor.fetchall()
+def get_challenges(current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, challenge, difficulty, estimated_co2_reduction, completion_reward, completed, created_at FROM challenges WHERE user_id = ? ORDER BY created_at DESC",
+        (current_user["id"],)
+    )
+    rows = cursor.fetchall()
     return {
         "challenges": [
             {
@@ -368,38 +464,35 @@ def get_challenges(current_user: dict = Depends(get_current_user)):
     }
 
 @app.post("/api/challenges")
-def add_challenge(challenge: ChallengeInput, current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO challenges (user_id, challenge, difficulty, estimated_co2_reduction, completion_reward) VALUES (?, ?, ?, ?, ?)",
-            (current_user["id"], challenge.challenge, challenge.difficulty, challenge.estimated_co2_reduction, challenge.completion_reward)
-        )
-        conn.commit()
-        challenge_id = cursor.lastrowid
+def add_challenge(challenge: ChallengeInput, current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO challenges (user_id, challenge, difficulty, estimated_co2_reduction, completion_reward) VALUES (?, ?, ?, ?, ?)",
+        (current_user["id"], challenge.challenge, challenge.difficulty, challenge.estimated_co2_reduction, challenge.completion_reward)
+    )
+    db.commit()
+    challenge_id = cursor.lastrowid
     return {"id": challenge_id, "message": "Challenge added successfully"}
 
 @app.post("/api/challenges/{challenge_id}/complete")
-def complete_challenge(challenge_id: int, current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE challenges SET completed = 1 WHERE id = ? AND user_id = ?",
-            (challenge_id, current_user["id"])
-        )
-        conn.commit()
+def complete_challenge(challenge_id: int, current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "UPDATE challenges SET completed = 1 WHERE id = ? AND user_id = ?",
+        (challenge_id, current_user["id"])
+    )
+    db.commit()
     return {"message": "Challenge marked as completed"}
 
 # ----------------- Carbon Analytics Endpoint -----------------
 @app.get("/api/analytics")
-def get_analytics(current_user: dict = Depends(get_current_user)):
-    with DBConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at ASC",
-            (current_user["id"],)
-        )
-        rows = cursor.fetchall()
+def get_analytics(current_user: dict = Depends(get_current_user), db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at ASC",
+        (current_user["id"],)
+    )
+    rows = cursor.fetchall()
 
     if not rows:
         return {
@@ -454,7 +547,7 @@ def get_analytics(current_user: dict = Depends(get_current_user)):
         "totalReduction": round(total_reduction, 2),
         "currentCarbonScore": current_score,
         "trend": trend
-      }
+    }
 
 # ----------------- Emissions API Endpoint -----------------
 @app.post("/api/calculate")
@@ -490,15 +583,15 @@ class ChatInput(BaseModel):
     emissions: Optional[Dict[str, Any]] = None
     recommendations: Optional[List[Dict[str, Any]]] = None
 
-def query_gemini(user_prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
-    import urllib.request
-    import json
-    
+async def query_gemini(user_prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key
+    }
     
     data = {
         "contents": [{
@@ -510,22 +603,21 @@ def query_gemini(user_prompt: str, system_prompt: Optional[str] = None) -> Optio
             "parts": [{"text": system_prompt}]
         }
         
-    req = urllib.request.Request(
-        url, 
-        data=json.dumps(data).encode("utf-8"), 
-        headers=headers, 
-        method="POST"
-    )
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            return res_data["candidates"][0]["content"]["parts"][0]["text"]
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=data, headers=headers)
+            if response.status_code == 200:
+                res_data = response.json()
+                return res_data["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                print(f"Gemini API returned status code {response.status_code}: {response.text}")
+                return None
     except Exception as e:
         print(f"Error querying Gemini: {e}")
         return None
 
-@app.post("/api/chat")
-def chatbot_chat(chat_input: ChatInput):
+@app.post("/api/chat", dependencies=[Depends(rate_limit_chat)])
+async def chatbot_chat(chat_input: ChatInput):
     profile_summary = f"Profile: {chat_input.profile}" if chat_input.profile else "No profile completed yet."
     emissions_summary = f"Emissions: {chat_input.emissions}" if chat_input.emissions else ""
     recs_summary = f"Ranked Recommendations: {chat_input.recommendations}" if chat_input.recommendations else ""
@@ -542,7 +634,7 @@ Always maintain your persona as a sustainability advisor and answer in that cont
 
     user_prompt = f"User Question: {chat_input.message}"
     
-    response_text = query_gemini(user_prompt, system_prompt=system_prompt)
+    response_text = await query_gemini(user_prompt, system_prompt=system_prompt)
     if response_text:
         return {"response": response_text.strip(), "source": "gemini"}
     else:

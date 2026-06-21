@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { KeyRound, LogIn, LogOut, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { KeyRound, LogIn, LogOut, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { getApiUrl } from '../utils/api';
 
 /**
@@ -14,18 +14,21 @@ export default function AuthSection({ onAuthChange }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [user, setUser] = useState(null);
-
-  // Load user session on mount
-  useEffect(() => {
+  const [user, setUser] = useState(() => {
     const cachedToken = localStorage.getItem('carbonmind_token');
     const cachedUser = localStorage.getItem('carbonmind_username');
     if (cachedToken && cachedUser) {
-      const activeUser = { token: cachedToken, username: cachedUser };
-      setUser(activeUser);
-      if (onAuthChange) onAuthChange(activeUser);
+      return { token: cachedToken, username: cachedUser };
     }
-  }, []);
+    return null;
+  });
+
+  // Load user session on mount
+  useEffect(() => {
+    if (user && onAuthChange) {
+      onAuthChange(user);
+    }
+  }, [user, onAuthChange]);
 
   const handleLogout = () => {
     localStorage.removeItem('carbonmind_token');
@@ -103,6 +106,7 @@ export default function AuthSection({ onAuthChange }) {
             <button
               onClick={() => setIsOpen(false)}
               className="absolute top-4 right-4 text-slate-500 hover:text-slate-350 cursor-pointer text-xl"
+              aria-label="Close sync modal"
             >
               &times;
             </button>
@@ -116,9 +120,10 @@ export default function AuthSection({ onAuthChange }) {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="flex flex-col">
-                <label className="text-xs font-semibold text-slate-400 mb-1">Username</label>
+                <label htmlFor="username-auth" className="text-xs font-semibold text-slate-400 mb-1">Username</label>
                 <input
                   type="text"
+                  id="username-auth"
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -127,9 +132,10 @@ export default function AuthSection({ onAuthChange }) {
               </div>
 
               <div className="flex flex-col">
-                <label className="text-xs font-semibold text-slate-400 mb-1">Password</label>
+                <label htmlFor="password-auth" className="text-xs font-semibold text-slate-400 mb-1">Password</label>
                 <input
                   type="password"
+                  id="password-auth"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

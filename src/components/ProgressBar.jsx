@@ -1,4 +1,3 @@
-import React from 'react';
 import { Truck, Utensils, Zap, ShoppingBag, Trash2 } from 'lucide-react';
 
 /**
@@ -27,8 +26,14 @@ export default function ProgressBar({ currentStep, totalSteps, steps }) {
 
   return (
     <div className="w-full mb-8">
-      {/* Visual Progress Bar */}
-      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-6 relative">
+      <div 
+        className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-6 relative"
+        role="progressbar"
+        aria-valuenow={currentStep + 1}
+        aria-valuemin="1"
+        aria-valuemax={totalSteps}
+        aria-valuetext={`Step ${currentStep + 1} of ${totalSteps}: ${steps[currentStep]?.label}`}
+      >
         <div 
           className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 rounded-full transition-all duration-500 ease-out"
           style={{ width: `${progressPercent}%` }}

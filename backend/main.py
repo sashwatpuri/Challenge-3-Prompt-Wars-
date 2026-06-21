@@ -21,9 +21,25 @@ for env_path in [".env", "../.env", "backend/.env"]:
 
 # Configuration
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "carbonmind_ai_secure_token_key_2026")
+if SECRET_KEY == "carbonmind_ai_secure_token_key_2026":
+    import warnings
+    warnings.warn(
+        "JWT_SECRET_KEY is using the default development fallback key. "
+        "Please configure a custom JWT_SECRET_KEY in your production environment.",
+        UserWarning
+    )
 ALGORITHM = "HS256"
 DB_FILE = "backend.db"
 ELECTRICITY_EMISSION_FACTOR = 0.82
+
+# Safe Context Manager for SQLite database connections
+class DBConnection:
+    def __enter__(self):
+        self.conn = sqlite3.connect(DB_FILE)
+        self.conn.execute("PRAGMA foreign_keys = ON;")
+        return self.conn
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.conn.close()
 
 app = FastAPI(
     title="CarbonMind AI - Backend Services",
@@ -32,10 +48,13 @@ app = FastAPI(
 )
 
 # Enable CORS for React integration
+allowed_origins_str = os.environ.get("ALLOWED_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=allowed_origins,
+    allow_credentials=True if allowed_origins_str != "*" else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -76,69 +95,72 @@ class ChallengeInput(BaseModel):
 
 # ----------------- Database Setup -----------------
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    # Users table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    # Profiles table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS profiles (
-            user_id INTEGER PRIMARY KEY,
-            transport TEXT NOT NULL,
-            food TEXT NOT NULL,
-            electricity REAL NOT NULL,
-            shopping REAL NOT NULL,
-            waste TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    """)
-    # Recommendations table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS recommendations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            action TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            impact_score INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    """)
-    # Carbon history table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS carbon_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            total_emission REAL NOT NULL,
-            carbon_score INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    """)
-    # Challenges table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS challenges (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            challenge TEXT NOT NULL,
-            difficulty TEXT NOT NULL,
-            estimated_co2_reduction TEXT NOT NULL,
-            completion_reward INTEGER NOT NULL,
-            completed BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    """)
-    conn.commit()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        # Users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Profiles table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS profiles (
+                user_id INTEGER PRIMARY KEY,
+                transport TEXT NOT NULL,
+                food TEXT NOT NULL,
+                electricity REAL NOT NULL,
+                shopping REAL NOT NULL,
+                waste TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # Recommendations table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                impact_score INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # Carbon history table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS carbon_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                total_emission REAL NOT NULL,
+                carbon_score INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # Challenges table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS challenges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                challenge TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                estimated_co2_reduction TEXT NOT NULL,
+                completion_reward INTEGER NOT NULL,
+                completed BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # Create indexes for optimal search query performance
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_recommendations_user_id ON recommendations(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_carbon_history_user_id ON carbon_history(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_challenges_user_id ON challenges(user_id)")
+        conn.commit()
 
 init_db()
 
@@ -175,33 +197,30 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
 # ----------------- Authentication Routes -----------------
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 def register(user: UserRegister):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
     try:
-        hashed = pwd_context.hash(user.password)
-        cursor.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (user.username, hashed)
-        )
-        conn.commit()
-        user_id = cursor.lastrowid
-        token = create_access_token({"sub": user.username, "id": user_id})
-        return {"access_token": token, "token_type": "bearer", "username": user.username}
+        with DBConnection() as conn:
+            cursor = conn.cursor()
+            hashed = pwd_context.hash(user.password)
+            cursor.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (user.username, hashed)
+            )
+            conn.commit()
+            user_id = cursor.lastrowid
+            token = create_access_token({"sub": user.username, "id": user_id})
+            return {"access_token": token, "token_type": "bearer", "username": user.username}
     except sqlite3.IntegrityError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username is already taken"
         )
-    finally:
-        conn.close()
 
 @app.post("/api/auth/login")
 def login(user: UserLogin):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (user.username,))
-    row = cursor.fetchone()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (user.username,))
+        row = cursor.fetchone()
 
     if not row or not pwd_context.verify(user.password, row[2]):
         raise HTTPException(
@@ -215,14 +234,13 @@ def login(user: UserLogin):
 # ----------------- Profile CRUD Routes -----------------
 @app.get("/api/profile")
 def get_profile(current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT transport, food, electricity, shopping, waste FROM profiles WHERE user_id = ?",
-        (current_user["id"],)
-    )
-    row = cursor.fetchone()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT transport, food, electricity, shopping, waste FROM profiles WHERE user_id = ?",
+            (current_user["id"],)
+        )
+        row = cursor.fetchone()
 
     if not row:
         return {"profile": None}
@@ -239,37 +257,35 @@ def get_profile(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/profile")
 def save_profile(profile: ProfileData, current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO profiles (user_id, transport, food, electricity, shopping, waste, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(user_id) DO UPDATE SET
-            transport=excluded.transport,
-            food=excluded.food,
-            electricity=excluded.electricity,
-            shopping=excluded.shopping,
-            waste=excluded.waste,
-            updated_at=CURRENT_TIMESTAMP
-        """,
-        (current_user["id"], profile.transport, profile.food, profile.electricity, profile.shopping, profile.waste)
-    )
-    conn.commit()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO profiles (user_id, transport, food, electricity, shopping, waste, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                transport=excluded.transport,
+                food=excluded.food,
+                electricity=excluded.electricity,
+                shopping=excluded.shopping,
+                waste=excluded.waste,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (current_user["id"], profile.transport, profile.food, profile.electricity, profile.shopping, profile.waste)
+        )
+        conn.commit()
     return {"message": "Profile synced successfully"}
 
 # ----------------- Recommendations History CRUD -----------------
 @app.get("/api/recommendations")
 def get_recommendations(current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, action, reason, impact_score, created_at FROM recommendations WHERE user_id = ? ORDER BY created_at DESC",
-        (current_user["id"],)
-    )
-    rows = cursor.fetchall()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, action, reason, impact_score, created_at FROM recommendations WHERE user_id = ? ORDER BY created_at DESC",
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
     return {
         "recommendations": [
             {
@@ -284,28 +300,26 @@ def get_recommendations(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/recommendations")
 def add_recommendation(rec: RecommendationInput, current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO recommendations (user_id, action, reason, impact_score) VALUES (?, ?, ?, ?)",
-        (current_user["id"], rec.action, rec.reason, rec.impact_score)
-    )
-    conn.commit()
-    rec_id = cursor.lastrowid
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO recommendations (user_id, action, reason, impact_score) VALUES (?, ?, ?, ?)",
+            (current_user["id"], rec.action, rec.reason, rec.impact_score)
+        )
+        conn.commit()
+        rec_id = cursor.lastrowid
     return {"id": rec_id, "message": "Recommendation saved successfully"}
 
 # ----------------- Carbon History CRUD -----------------
 @app.get("/api/history")
 def get_history(current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at DESC",
-        (current_user["id"],)
-    )
-    rows = cursor.fetchall()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at DESC",
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
     return {
         "history": [
             {
@@ -319,28 +333,26 @@ def get_history(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/history")
 def add_history(history: CarbonHistoryInput, current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO carbon_history (user_id, total_emission, carbon_score) VALUES (?, ?, ?)",
-        (current_user["id"], history.total_emission, history.carbon_score)
-    )
-    conn.commit()
-    history_id = cursor.lastrowid
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO carbon_history (user_id, total_emission, carbon_score) VALUES (?, ?, ?)",
+            (current_user["id"], history.total_emission, history.carbon_score)
+        )
+        conn.commit()
+        history_id = cursor.lastrowid
     return {"id": history_id, "message": "Carbon footprint log recorded"}
 
 # ----------------- Weekly Challenges CRUD -----------------
 @app.get("/api/challenges")
 def get_challenges(current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, challenge, difficulty, estimated_co2_reduction, completion_reward, completed, created_at FROM challenges WHERE user_id = ? ORDER BY created_at DESC",
-        (current_user["id"],)
-    )
-    rows = cursor.fetchall()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, challenge, difficulty, estimated_co2_reduction, completion_reward, completed, created_at FROM challenges WHERE user_id = ? ORDER BY created_at DESC",
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
     return {
         "challenges": [
             {
@@ -357,40 +369,37 @@ def get_challenges(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/challenges")
 def add_challenge(challenge: ChallengeInput, current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO challenges (user_id, challenge, difficulty, estimated_co2_reduction, completion_reward) VALUES (?, ?, ?, ?, ?)",
-        (current_user["id"], challenge.challenge, challenge.difficulty, challenge.estimated_co2_reduction, challenge.completion_reward)
-    )
-    conn.commit()
-    challenge_id = cursor.lastrowid
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO challenges (user_id, challenge, difficulty, estimated_co2_reduction, completion_reward) VALUES (?, ?, ?, ?, ?)",
+            (current_user["id"], challenge.challenge, challenge.difficulty, challenge.estimated_co2_reduction, challenge.completion_reward)
+        )
+        conn.commit()
+        challenge_id = cursor.lastrowid
     return {"id": challenge_id, "message": "Challenge added successfully"}
 
 @app.post("/api/challenges/{challenge_id}/complete")
 def complete_challenge(challenge_id: int, current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE challenges SET completed = 1 WHERE id = ? AND user_id = ?",
-        (challenge_id, current_user["id"])
-    )
-    conn.commit()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE challenges SET completed = 1 WHERE id = ? AND user_id = ?",
+            (challenge_id, current_user["id"])
+        )
+        conn.commit()
     return {"message": "Challenge marked as completed"}
 
 # ----------------- Carbon Analytics Endpoint -----------------
 @app.get("/api/analytics")
 def get_analytics(current_user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at ASC",
-        (current_user["id"],)
-    )
-    rows = cursor.fetchall()
-    conn.close()
+    with DBConnection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT total_emission, carbon_score, created_at FROM carbon_history WHERE user_id = ? ORDER BY created_at ASC",
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
 
     if not rows:
         return {
@@ -481,7 +490,7 @@ class ChatInput(BaseModel):
     emissions: Optional[Dict[str, Any]] = None
     recommendations: Optional[List[Dict[str, Any]]] = None
 
-def query_gemini(prompt: str) -> Optional[str]:
+def query_gemini(user_prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
     import urllib.request
     import json
     
@@ -490,11 +499,17 @@ def query_gemini(prompt: str) -> Optional[str]:
         return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
+    
     data = {
         "contents": [{
-            "parts": [{"text": prompt}]
+            "parts": [{"text": user_prompt}]
         }]
     }
+    if system_prompt:
+        data["systemInstruction"] = {
+            "parts": [{"text": system_prompt}]
+        }
+        
     req = urllib.request.Request(
         url, 
         data=json.dumps(data).encode("utf-8"), 
@@ -515,7 +530,7 @@ def chatbot_chat(chat_input: ChatInput):
     emissions_summary = f"Emissions: {chat_input.emissions}" if chat_input.emissions else ""
     recs_summary = f"Ranked Recommendations: {chat_input.recommendations}" if chat_input.recommendations else ""
     
-    prompt = f"""You are CarbonMind AI, a helpful sustainability assistant.
+    system_prompt = f"""You are CarbonMind AI, a helpful sustainability assistant.
 The user is in India (currencies in INR / Rupee ₹, electricity tariff avg ₹7/kWh, coal-heavy grid emissions index 0.82 kg CO2e/kWh).
 User Context:
 {profile_summary}
@@ -523,10 +538,11 @@ User Context:
 {recs_summary}
 
 Please answer the user's question. Keep your response concise, encouraging, friendly, and under 3-4 sentences.
-User Question: "{chat_input.message}"
-Answer:"""
+Always maintain your persona as a sustainability advisor and answer in that context."""
 
-    response_text = query_gemini(prompt)
+    user_prompt = f"User Question: {chat_input.message}"
+    
+    response_text = query_gemini(user_prompt, system_prompt=system_prompt)
     if response_text:
         return {"response": response_text.strip(), "source": "gemini"}
     else:

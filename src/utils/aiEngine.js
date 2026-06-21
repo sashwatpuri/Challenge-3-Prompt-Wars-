@@ -155,7 +155,8 @@ export function runInsightEngine(emissions) {
       primaryEmissionSource: item.primaryEmissionSource,
       impactScore,
       difficulty: item.difficulty,
-      estimatedReduction: `${reductionPct}%`
+      estimatedReduction: `${reductionPct}%`,
+      reductionKg: item.reductionKg
     };
   });
 

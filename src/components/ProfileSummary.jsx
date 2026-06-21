@@ -1,5 +1,5 @@
-import React from 'react';
-import { RefreshCw, Leaf, Zap, ShieldAlert, Sparkles, TrendingDown, Star, Activity } from 'lucide-react';
+import { useMemo } from 'react';
+import { RefreshCw, Leaf, Zap, ShieldAlert, Sparkles, TrendingDown } from 'lucide-react';
 import { calculateFootprint } from '../utils/carbonEngine';
 import { runInsightEngine } from '../utils/aiEngine';
 import CarbonTwin from './CarbonTwin';
@@ -16,10 +16,10 @@ import CarbonChatbot from './CarbonChatbot';
  */
 export default function ProfileSummary({ profile, onReset }) {
   // Compile calculations and feed to the AI decision engine
-  const footprintReport = calculateFootprint(profile);
+  const footprintReport = useMemo(() => calculateFootprint(profile), [profile]);
   const totalEmissions = footprintReport.totalEmission.yearly;
 
-  const { profile: aiProfile, recommendations, insight } = runInsightEngine(footprintReport);
+  const { profile: aiProfile, recommendations, insight } = useMemo(() => runInsightEngine(footprintReport), [footprintReport]);
 
   // Setup risk category styling dynamically
   let riskColor = 'text-emerald-450 border-emerald-500/20 bg-emerald-950/20';

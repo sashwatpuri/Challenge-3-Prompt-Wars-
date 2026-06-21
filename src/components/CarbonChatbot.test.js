@@ -3,7 +3,7 @@ import {
   generateResponse,
   generateAdvice,
   generateCarbonExplanation
-} from './CarbonChatbot';
+} from '../utils/chatbotHelpers';
 
 describe('CarbonMind AI - Assistant Chatbot Logic Tests', () => {
   const mockContext = {
@@ -24,12 +24,12 @@ describe('CarbonMind AI - Assistant Chatbot Logic Tests', () => {
     },
     recommendations: [
       {
-        action: 'Replace two weekly car trips with public transit',
-        carbonReduction: 960,
+        recommendation: 'Replace two weekly car trips with public transit',
+        reductionKg: 960,
         difficulty: 'Medium',
         cost: 'Low',
-        impactScore: 8.2,
-        reasoning: 'Reduces gasoline car usage directly.'
+        impactScore: 82,
+        reason: 'Reduces gasoline car usage directly.'
       }
     ]
   };

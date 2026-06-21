@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
-import { User, UserCheck, CheckCircle2, Circle, ArrowRight, ShieldCheck, Leaf, IndianRupee, TrendingDown } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { User, UserCheck, CheckCircle2, Circle, ShieldCheck, Leaf, IndianRupee, TrendingDown } from 'lucide-react';
 
 /**
  * CarbonTwin Component
  * Simulates a virtual future version of the user based on adopted recommendations.
  * 
  * @param {Object} props
- * @param {Object} props.currentProfile - User lifestyle profile JSON
  * @param {Array<Object>} props.recommendations - List of recommendations from AI Insight Engine
  * @param {Object} props.emissionBreakdown - Detailed emission metrics
  */
-export default function CarbonTwin({ currentProfile, recommendations, emissionBreakdown }) {
+export default function CarbonTwin({ recommendations, emissionBreakdown }) {
   // Store indexes of adopted recommendations in state (by default first one is adopted)
   const [adoptedIndexes, setAdoptedIndexes] = useState([0]);
 
@@ -25,19 +24,19 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
     );
   };
 
-  // 1. Calculate Carbon Score (0-100 where 100 is ideal, 0 is 8000+ kg CO2e)
+  // Calculate Carbon Score (0-100 where 100 is ideal, 0 is 8000+ kg CO2e)
   const calculateScore = (emissionsValue) => {
     const raw = 100 - (emissionsValue / 80);
     return Math.max(0, Math.min(100, Math.round(raw)));
   };
 
   // Original metrics
-  const originalScore = calculateScore(origTotal);
+  const originalScore = useMemo(() => calculateScore(origTotal), [origTotal]);
   const originalTransport = emissionBreakdown.transportEmission.yearly;
   const originalEnergy = emissionBreakdown.energyEmission.yearly;
 
   // Calculate simulated future emissions by deducting adopted reductions
-  const calculateFutureMetrics = () => {
+  const futureMetrics = useMemo(() => {
     let savedYearly = 0;
     let savedMonthlyCash = 0;
 
@@ -74,7 +73,7 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
       carbonReductionPercentage: reductionPct,
       monthlySavingsEstimate: savedMonthlyCash
     };
-  };
+  }, [adoptedIndexes, recommendations, origTotal]);
 
   const {
     futureTotal,
@@ -82,13 +81,13 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
     annualCO2Saved,
     carbonReductionPercentage,
     monthlySavingsEstimate
-  } = calculateFutureMetrics();
+  } = futureMetrics;
 
   // Helper for gradient colors based on carbon score
   const getScoreColor = (score) => {
     if (score > 75) return 'text-emerald-400';
     if (score > 40) return 'text-amber-450';
-    return 'text-rose-450';
+    return 'text-rose-455';
   };
 
   return (
@@ -96,7 +95,7 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
       
       {/* Header */}
       <h3 className="text-xl font-bold text-white mb-3 flex items-center gap-2 border-b border-slate-800 pb-3">
-        <ShieldCheck className="w-5 h-5 text-emerald-400" />
+        <ShieldCheck className="w-5 h-5 text-emerald-400" aria-hidden="true" />
         Carbon Twin Simulation
       </h3>
       <p className="text-slate-400 text-xs md:text-sm mb-6">
@@ -108,7 +107,7 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
         
         {/* Card 1: Current Twin Profile */}
         <div className="p-6 bg-slate-950/60 border border-slate-850 rounded-2xl flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-15">
+          <div className="absolute top-0 right-0 p-4 opacity-15" aria-hidden="true">
             <User size={90} className="text-slate-600" />
           </div>
 
@@ -144,7 +143,7 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
 
         {/* Card 2: Future Twin Profile */}
         <div className="p-6 bg-slate-950/60 border border-emerald-950/40 rounded-2xl flex flex-col justify-between relative overflow-hidden shadow-lg shadow-emerald-950/5">
-          <div className="absolute top-0 right-0 p-4 opacity-15">
+          <div className="absolute top-0 right-0 p-4 opacity-15" aria-hidden="true">
             <UserCheck size={90} className="text-emerald-500" />
           </div>
 
@@ -195,13 +194,14 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
                 <button
                   key={index}
                   onClick={() => handleToggleAdopt(index)}
+                  aria-pressed={isAdopted}
                   className={`w-full flex items-start gap-3 p-3.5 border rounded-xl text-left transition-all duration-150 cursor-pointer
                     ${isAdopted 
                       ? 'bg-emerald-950/20 border-emerald-500/35 text-emerald-400' 
                       : 'bg-slate-950/40 border-slate-850 text-slate-350 hover:border-slate-800'
                     }`}
                 >
-                  <div className="flex-shrink-0 mt-0.5">
+                  <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
                     {isAdopted 
                       ? <CheckCircle2 className="w-5 h-5 text-emerald-400 fill-current" /> 
                       : <Circle className="w-5 h-5 text-slate-650" />
@@ -232,7 +232,7 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
           {/* Key Simulation KPIs */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-950/60 border border-slate-850 rounded-xl flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-400">
+              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-400" aria-hidden="true">
                 <IndianRupee className="w-5 h-5" />
               </div>
               <div>
@@ -244,13 +244,13 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
             </div>
 
             <div className="p-4 bg-slate-950/60 border border-slate-850 rounded-xl flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-400">
+              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-400" aria-hidden="true">
                 <TrendingDown className="w-5 h-5" />
               </div>
               <div>
                 <span className="block text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Annual Saved</span>
                 <span className="text-base font-extrabold text-emerald-400 font-mono">
-                  -{annualCO2Saved} kg
+                  -{annualCO2Saved.toLocaleString()} kg
                 </span>
               </div>
             </div>
@@ -259,7 +259,7 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
           {/* SVG Comparison Twin Chart */}
           <div className="p-5 bg-slate-950/40 border border-slate-850 rounded-xl">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-4 flex items-center gap-1.5">
-              <Leaf className="w-4 h-4 text-emerald-400" />
+              <Leaf className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               Emissions Twin Bar Chart
             </span>
 
@@ -270,7 +270,14 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
                   <span>Current Twin</span>
                   <span className="font-mono">{origTotal.toLocaleString()} kg CO₂e</span>
                 </div>
-                <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative">
+                <div 
+                  className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative"
+                  role="progressbar"
+                  aria-valuenow={origTotal}
+                  aria-valuemin="0"
+                  aria-valuemax={Math.max(origTotal, futureTotal)}
+                  aria-label="Current Twin annual carbon footprint"
+                >
                   <div 
                     className="h-full bg-slate-600 rounded-full transition-all duration-500"
                     style={{ width: `${Math.max(10, Math.min(100, (origTotal / Math.max(origTotal, futureTotal)) * 100))}%` }}
@@ -284,7 +291,14 @@ export default function CarbonTwin({ currentProfile, recommendations, emissionBr
                   <span>Future Twin</span>
                   <span className="font-mono">{futureTotal.toLocaleString()} kg CO₂e</span>
                 </div>
-                <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative">
+                <div 
+                  className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative"
+                  role="progressbar"
+                  aria-valuenow={futureTotal}
+                  aria-valuemin="0"
+                  aria-valuemax={Math.max(origTotal, futureTotal)}
+                  aria-label="Future Twin simulated annual carbon footprint"
+                >
                   <div 
                     className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
                     style={{ width: `${Math.max(10, Math.min(100, (futureTotal / Math.max(origTotal, futureTotal)) * 100))}%` }}

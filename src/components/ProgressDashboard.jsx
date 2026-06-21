@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Award, Flame, CheckCircle2, TrendingDown, Star, Sparkles, Trophy, Calendar } from 'lucide-react';
+import { useState } from 'react';
+import { Award, Flame, CheckCircle2, Trophy, Calendar } from 'lucide-react';
 
 /**
  * ProgressDashboard Component
@@ -21,33 +21,34 @@ export default function ProgressDashboard({ profile, emissions }) {
 
   const carbonScore = calculateCarbonScore(yearlyTotal);
 
-  // 2. Data persistence state mapping
-  const [streak, setStreak] = useState(3); // Default demo streak
-  const [challenges, setChallenges] = useState([
-    { id: 1, text: 'Walk 10 km this week instead of driving', completed: false, value: 50 },
-    { id: 2, text: 'Use public transport at least twice', completed: false, value: 80 },
-    { id: 3, text: 'Reduce household standby power usage by 5%', completed: false, value: 40 }
-  ]);
-  const [savedEmissions, setSavedEmissions] = useState(120); // Cumulative kg saved
+  // Lazy state initializers to load cached data directly on creation (prevents cascading mounts)
+  const [streak, setStreak] = useState(() => {
+    const cached = localStorage.getItem('carbonmind_streak');
+    return cached ? Number(cached) : 3;
+  });
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    const cachedStreak = localStorage.getItem('carbonmind_streak');
-    const cachedChallenges = localStorage.getItem('carbonmind_challenges');
-    const cachedSaved = localStorage.getItem('carbonmind_saved_emissions');
-
-    if (cachedStreak) setStreak(Number(cachedStreak));
-    if (cachedSaved) setSavedEmissions(Number(cachedSaved));
-    if (cachedChallenges) {
+  const [challenges, setChallenges] = useState(() => {
+    const cached = localStorage.getItem('carbonmind_challenges');
+    if (cached) {
       try {
-        setChallenges(JSON.parse(cachedChallenges));
+        return JSON.parse(cached);
       } catch (e) {
         console.error("Failed to parse challenges cache", e);
       }
     }
-  }, []);
+    return [
+      { id: 1, text: 'Walk 10 km this week instead of driving', completed: false, value: 50 },
+      { id: 2, text: 'Use public transport at least twice', completed: false, value: 80 },
+      { id: 3, text: 'Reduce household standby power usage by 5%', completed: false, value: 40 }
+    ];
+  });
 
-  // Save to localStorage on change
+  const [savedEmissions, setSavedEmissions] = useState(() => {
+    const cached = localStorage.getItem('carbonmind_saved_emissions');
+    return cached ? Number(cached) : 120;
+  });
+
+  // Save to localStorage on change helper
   const updateLocalStorage = (newStreak, newChallenges, newSaved) => {
     localStorage.setItem('carbonmind_streak', String(newStreak));
     localStorage.setItem('carbonmind_challenges', JSON.stringify(newChallenges));
@@ -128,7 +129,7 @@ export default function ProgressDashboard({ profile, emissions }) {
       
       {/* Header */}
       <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2 border-b border-slate-800 pb-3">
-        <Trophy className="w-5 h-5 text-amber-400" />
+        <Trophy className="w-5 h-5 text-amber-400" aria-hidden="true" />
         Gamification & Progress System
       </h3>
 
@@ -139,8 +140,12 @@ export default function ProgressDashboard({ profile, emissions }) {
           <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">Carbon Score</span>
           
           {/* SVG Circular Dial */}
-          <div className="relative w-32 h-32 flex items-center justify-center">
-            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+          <div 
+            className="relative w-32 h-32 flex items-center justify-center"
+            role="img"
+            aria-label={`Carbon score is ${carbonScore} out of 100. Rating: ${scoreLabel}`}
+          >
+            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
               <circle 
                 cx="50" cy="50" r="40" 
                 stroke="#1e293b" strokeWidth="8" fill="transparent" 
@@ -161,7 +166,7 @@ export default function ProgressDashboard({ profile, emissions }) {
                 </linearGradient>
               </defs>
             </svg>
-            <div className="absolute flex flex-col items-center">
+            <div className="absolute flex flex-col items-center" aria-hidden="true">
               <span className="text-3xl font-extrabold text-white font-mono">{carbonScore}</span>
               <span className="text-[9px] text-slate-400">/ 100</span>
             </div>
@@ -170,8 +175,12 @@ export default function ProgressDashboard({ profile, emissions }) {
           <span className={`text-xs font-bold mt-3 ${scoreColor}`}>{scoreLabel}</span>
 
           {/* Daily Streak Indicator */}
-          <div className="mt-5 flex items-center gap-2 px-3 py-1.5 bg-rose-950/20 border border-rose-900/30 rounded-lg text-rose-400 text-xs font-bold">
-            <Flame className="w-4 h-4 fill-current animate-bounce" />
+          <div 
+            className="mt-5 flex items-center gap-2 px-3 py-1.5 bg-rose-950/20 border border-rose-900/30 rounded-lg text-rose-400 text-xs font-bold"
+            role="status"
+            aria-label={`${streak} day commute streak`}
+          >
+            <Flame className="w-4 h-4 fill-current animate-bounce" aria-hidden="true" />
             <span>{streak} Day Commute Streak</span>
           </div>
         </div>
@@ -181,7 +190,7 @@ export default function ProgressDashboard({ profile, emissions }) {
           <div>
             <div className="flex justify-between items-center mb-3">
               <span className="text-slate-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-emerald-450" />
+                <Calendar className="w-4 h-4 text-emerald-450" aria-hidden="true" />
                 Weekly Tasks
               </span>
               <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
@@ -194,18 +203,20 @@ export default function ProgressDashboard({ profile, emissions }) {
                 <button
                   key={ch.id}
                   onClick={() => handleToggleChallenge(ch.id)}
+                  aria-pressed={ch.completed}
+                  aria-label={`Toggle weekly task: ${ch.text}`}
                   className={`w-full flex items-start gap-2.5 p-3 rounded-lg text-left transition-all border duration-150 cursor-pointer
                     ${ch.completed 
                       ? 'bg-emerald-950/15 border-emerald-900/40 text-emerald-400' 
                       : 'bg-slate-900/40 border-slate-850 text-slate-300 hover:border-slate-700'
                     }`}
                 >
-                  <CheckCircle2 className={`w-4 h-4 flex-shrink-0 mt-0.5 ${ch.completed ? 'text-emerald-400 fill-current' : 'text-slate-650'}`} />
+                  <CheckCircle2 className={`w-4 h-4 flex-shrink-0 mt-0.5 ${ch.completed ? 'text-emerald-400 fill-current' : 'text-slate-650'}`} aria-hidden="true" />
                   <div>
                     <p className={`text-xs leading-normal font-semibold ${ch.completed ? 'line-through opacity-75' : ''}`}>
                       {ch.text}
                     </p>
-                    <span className="text-[9px] text-slate-500 font-mono mt-0.5 block">
+                    <span className="text-[9px] text-slate-500 font-mono mt-0.5 block" aria-hidden="true">
                       Reward: +{ch.value}g CO₂ Saved
                     </span>
                   </div>
@@ -224,30 +235,31 @@ export default function ProgressDashboard({ profile, emissions }) {
         {/* Right: Achievement Badges Collection */}
         <div className="md:col-span-4 bg-slate-950/40 border border-slate-850 p-5 rounded-xl">
           <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-4 flex items-center gap-1.5">
-            <Award className="w-4 h-4 text-emerald-450" />
+            <Award className="w-4 h-4 text-emerald-455" aria-hidden="true" />
             Milestone Badges
           </span>
 
-          <div className="space-y-3.5">
+          <ul className="space-y-3.5" role="list">
             {badgesList.map(badge => (
-              <div 
+              <li 
                 key={badge.id}
                 className={`flex items-center gap-3 transition-opacity duration-200 ${badge.unlocked ? 'opacity-100' : 'opacity-40'}`}
+                aria-label={`${badge.name} badge: ${badge.desc}. ${badge.unlocked ? 'Unlocked' : 'Locked'}`}
               >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${badge.unlocked ? badge.iconColor : 'bg-slate-900 border-slate-800 text-slate-650'}`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${badge.unlocked ? badge.iconColor : 'bg-slate-900 border-slate-800 text-slate-650'}`} aria-hidden="true">
                   <Trophy className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className={`block text-xs font-extrabold ${badge.unlocked ? 'text-white' : 'text-slate-500'}`}>
+                  <span className={`block text-xs font-extrabold ${badge.unlocked ? 'text-white' : 'text-slate-500'}`} aria-hidden="true">
                     {badge.name}
                   </span>
-                  <span className="text-[10px] text-slate-500 leading-tight block">
+                  <span className="text-[10px] text-slate-500 leading-tight block" aria-hidden="true">
                     {badge.desc}
                   </span>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
 
       </div>

@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlertCircle, HelpCircle } from 'lucide-react';
 
 /**
@@ -42,12 +41,20 @@ export default function StepCard({ step, formData, onChange, errors }) {
                 <span>{field.label}</span>
                 {field.required && <span className="text-rose-500 font-bold">*</span>}
                 {field.tooltip && (
-                  <div className="group relative cursor-pointer">
-                    <HelpCircle size={14} className="text-slate-500 hover:text-slate-300 transition-colors" />
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950 text-xs text-slate-300 rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 z-20 border border-slate-800 shadow-xl">
+                  <button
+                    type="button"
+                    className="group relative cursor-help bg-transparent border-none p-0 focus:outline-none focus:text-slate-300 transition-colors"
+                    aria-label={`Help about ${field.label}`}
+                  >
+                    <HelpCircle size={14} className="text-slate-500 group-focus:text-slate-300 group-hover:text-slate-300 transition-colors" />
+                    <div 
+                      id={`${field.name}-tooltip`}
+                      role="tooltip"
+                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950 text-xs text-slate-300 rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200 z-20 border border-slate-800 shadow-xl"
+                    >
                       {field.tooltip}
                     </div>
-                  </div>
+                  </button>
                 )}
               </label>
 
@@ -59,6 +66,7 @@ export default function StepCard({ step, formData, onChange, errors }) {
                     name={field.name}
                     value={value}
                     onChange={(e) => onChange(field.name, e.target.value)}
+                    aria-describedby={field.tooltip ? `${field.name}-tooltip` : undefined}
                     className={`w-full px-4 py-3 bg-slate-950 text-slate-100 border rounded-xl focus:outline-none focus:ring-2 transition-all duration-200 appearance-none cursor-pointer
                       ${hasError 
                         ? 'border-rose-500/60 focus:ring-rose-500/30' 
@@ -91,6 +99,7 @@ export default function StepCard({ step, formData, onChange, errors }) {
                     min={field.min}
                     max={field.max}
                     placeholder={field.placeholder || "Enter a number..."}
+                    aria-describedby={field.tooltip ? `${field.name}-tooltip` : undefined}
                     onChange={(e) => {
                       const val = e.target.value === '' ? '' : Number(e.target.value);
                       onChange(field.name, val);

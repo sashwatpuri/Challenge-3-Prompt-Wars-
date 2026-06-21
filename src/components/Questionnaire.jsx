@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Send, Leaf } from 'lucide-react';
 import ProgressBar from './ProgressBar';
 import StepCard from './StepCard';
@@ -329,6 +329,12 @@ export default function Questionnaire({ user }) {
           onChange={handleFieldChange} 
           errors={errors} 
         />
+
+        {apiError && (
+          <div className="flex items-center gap-1.5 p-3 bg-rose-950/20 border border-rose-900/30 rounded-xl text-rose-400 text-xs font-semibold">
+            <span>Failed to sync: {apiError}</span>
+          </div>
+        )}
 
         {/* Step Navigation Controls */}
         <div className="flex justify-between items-center gap-4">

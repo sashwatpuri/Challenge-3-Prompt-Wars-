@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Leaf, IndianRupee, TrendingDown, RefreshCw, Zap, User, UserCheck, ArrowRight } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Leaf, IndianRupee, TrendingDown, RefreshCw, User, UserCheck, ArrowRight } from 'lucide-react';
 import { calculateFootprint } from '../utils/carbonEngine';
 
 /**
@@ -19,19 +19,19 @@ export default function WhatIfSimulator({ originalProfile }) {
     setSimulatedProfile({ ...originalProfile });
   };
 
-  // Run footprint engine on both profiles
-  const originalFootprint = calculateFootprint(originalProfile);
-  const simulatedFootprint = calculateFootprint(simulatedProfile);
+  // Run footprint engine on both profiles using memoization
+  const originalFootprint = useMemo(() => calculateFootprint(originalProfile), [originalProfile]);
+  const simulatedFootprint = useMemo(() => calculateFootprint(simulatedProfile), [simulatedProfile]);
 
   const origTotal = originalFootprint.totalEmission.yearly;
   const simTotal = simulatedFootprint.totalEmission.yearly;
 
   // Calculate carbon reduction parameters
-  const carbonSaved = Math.max(0, origTotal - simTotal);
-  const reductionPercentage = origTotal > 0 ? Math.round((carbonSaved / origTotal) * 100) : 0;
+  const carbonSaved = useMemo(() => Math.max(0, origTotal - simTotal), [origTotal, simTotal]);
+  const reductionPercentage = useMemo(() => origTotal > 0 ? Math.round((carbonSaved / origTotal) * 100) : 0, [carbonSaved, origTotal]);
 
-  // Calculate estimated financial savings (in INR/year)
-  const calculateFinancialSavings = () => {
+  // Calculate estimated financial savings (in INR/year) using memoization
+  const financialSavings = useMemo(() => {
     let savings = 0;
 
     // Transport savings (in INR)
@@ -55,9 +55,7 @@ export default function WhatIfSimulator({ originalProfile }) {
     savings += shoppingSaved * 12 * 2500;
 
     return Math.round(savings);
-  };
-
-  const financialSavings = calculateFinancialSavings();
+  }, [originalProfile, simulatedProfile]);
 
   return (
     <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl mt-8">
@@ -66,7 +64,7 @@ export default function WhatIfSimulator({ originalProfile }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5 mb-6">
         <div>
           <h3 className="text-xl font-bold text-white flex items-center gap-2">
-            <Activity className="w-5 h-5 text-emerald-400" />
+            <Activity className="w-5 h-5 text-emerald-400" aria-hidden="true" />
             Carbon Twin & What-If Simulator
           </h3>
           <p className="text-slate-400 text-xs mt-1">
@@ -77,7 +75,7 @@ export default function WhatIfSimulator({ originalProfile }) {
           onClick={handleReset}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-lg transition-colors cursor-pointer"
         >
-          <RefreshCw size={12} />
+          <RefreshCw size={12} aria-hidden="true" />
           Reset Simulator
         </button>
       </div>
@@ -175,7 +173,7 @@ export default function WhatIfSimulator({ originalProfile }) {
           {/* Key Simulation KPI Badges */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-950/60 border border-slate-850 rounded-xl flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-400">
+              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-400" aria-hidden="true">
                 <TrendingDown className="w-5 h-5" />
               </div>
               <div>
@@ -187,7 +185,7 @@ export default function WhatIfSimulator({ originalProfile }) {
             </div>
 
             <div className="p-4 bg-slate-950/60 border border-slate-850 rounded-xl flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-455">
+              <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-900/40 flex items-center justify-center text-emerald-450" aria-hidden="true">
                 <IndianRupee className="w-5 h-5" />
               </div>
               <div>
@@ -202,7 +200,7 @@ export default function WhatIfSimulator({ originalProfile }) {
           {/* Carbon Twin Feature (Visual Comparison Chart) */}
           <div className="p-5 bg-slate-950/40 border border-slate-850 rounded-xl space-y-5">
             <h5 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Leaf className="w-4 h-4 text-emerald-400" />
+              <Leaf className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               Carbon Twin Comparison
             </h5>
 
@@ -213,12 +211,19 @@ export default function WhatIfSimulator({ originalProfile }) {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-semibold text-slate-350 flex items-center gap-1.5">
-                    <User className="w-3.5 h-3.5 text-slate-450" />
+                    <User className="w-3.5 h-3.5 text-slate-450" aria-hidden="true" />
                     Current Twin
                   </span>
                   <span className="font-mono font-bold text-slate-300">{origTotal.toLocaleString()} kg CO₂e</span>
                 </div>
-                <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative">
+                <div 
+                  className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative"
+                  role="progressbar"
+                  aria-valuenow={origTotal}
+                  aria-valuemin="0"
+                  aria-valuemax={Math.max(origTotal, simTotal)}
+                  aria-label="Current Twin annual carbon footprint"
+                >
                   <div 
                     className="h-full bg-slate-500 rounded-full transition-all duration-500"
                     style={{ width: `${Math.max(10, Math.min(100, (origTotal / Math.max(origTotal, simTotal)) * 100))}%` }}
@@ -227,7 +232,7 @@ export default function WhatIfSimulator({ originalProfile }) {
               </div>
 
               {/* Arrow Indicator */}
-              <div className="flex justify-center text-emerald-450">
+              <div className="flex justify-center text-emerald-450" aria-hidden="true">
                 <ArrowRight className="w-5 h-5 rotate-90 lg:rotate-0" />
               </div>
 
@@ -235,12 +240,19 @@ export default function WhatIfSimulator({ originalProfile }) {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
-                    <UserCheck className="w-3.5 h-3.5" />
+                    <UserCheck className="w-3.5 h-3.5" aria-hidden="true" />
                     Future Twin (Simulated)
                   </span>
                   <span className="font-mono font-bold text-emerald-450">{simTotal.toLocaleString()} kg CO₂e</span>
                 </div>
-                <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative">
+                <div 
+                  className="w-full h-3 bg-slate-900 rounded-full overflow-hidden relative"
+                  role="progressbar"
+                  aria-valuenow={simTotal}
+                  aria-valuemin="0"
+                  aria-valuemax={Math.max(origTotal, simTotal)}
+                  aria-label="Future Twin simulated annual carbon footprint"
+                >
                   <div 
                     className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
                     style={{ width: `${Math.max(10, Math.min(100, (simTotal / Math.max(origTotal, simTotal)) * 100))}%` }}
@@ -285,7 +297,7 @@ function Activity(props) {
   return (
     <svg
       {...props}
-      xmlns="http://www.w3.org/2500/svg"
+      xmlns="http://www.w3.org/2000/svg"
       width="24"
       height="24"
       viewBox="0 0 24 24"

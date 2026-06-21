@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Questionnaire from './components/Questionnaire';
 import AuthSection from './components/AuthSection';
